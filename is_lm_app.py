@@ -1,11 +1,8 @@
 import streamlit as st
 import numpy as np
-import matplotlib.pyplot as plt
-
 
 # 設定中文字型（防止顯示成方框）
-plt.rcParams['font.sans-serif'] = ['Microsoft JhengHei']  # Windows
-plt.rcParams['axes.unicode_minus'] = False  # 讓負號正常顯示
+plt.rcParams['font.sans-serif'] = ['Arial Unicode MS']
 
 st.set_page_config(page_title="IS-LM 模型互動模擬", layout="wide")
 
