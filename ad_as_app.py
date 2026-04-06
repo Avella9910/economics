@@ -1,8 +1,10 @@
 import streamlit as st
 import numpy as np
+import matplotlib.pyplot as plt
 
 # 設定中文字型（防止顯示成方框）
 plt.rcParams['font.sans-serif'] = ['Arial Unicode MS']
+plt.rcParams["axes.unicode_minus"] = False
 
 # 設定 Streamlit 頁面
 st.set_page_config(page_title="AD-AS 模擬", layout="centered")
