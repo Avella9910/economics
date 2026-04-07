@@ -2,129 +2,303 @@ import streamlit as st
 import numpy as np
 import matplotlib.pyplot as plt
 
-# 設定中文字型（防止顯示成方框）
-plt.rcParams['font.sans-serif'] = ['Arial Unicode MS']
+# 字型設定
+plt.rcParams["font.sans-serif"] = ["Arial Unicode MS", "PingFang TC", "Heiti TC"]
 plt.rcParams["axes.unicode_minus"] = False
 
-# 設定 Streamlit 頁面
-st.set_page_config(page_title="AD-AS 模擬", layout="centered")
+st.set_page_config(page_title="AD-AS 模型互動模擬", layout="centered")
 
-# 🔹 建立「頁面切換」選單
-page = st.sidebar.selectbox("選擇主題", ["🏠 首頁", "📊 AD-AS 模擬", "乘數效應與模式區別", "需求衝擊 vs. 供給衝擊", "短期 vs. 長期 AS", "約翰·梅納德·凱因斯"])
 
-# 🎯 **首頁**
+# -----------------------------
+# 模型函數
+# -----------------------------
+def ad_curve(Y, A=120, m=0.12):
+    """
+    AD 曲線（向右下傾斜）
+    P = A - mY
+
+    A 越大，AD 越右移
+    m 為斜率大小
+    """
+    return A - m * Y
+
+
+def sras_curve(Y, Pe=20, lam=0.08, Yn=500, shock=0):
+    """
+    短期總供給 SRAS（向右上傾斜）
+    P = Pe + λ(Y - Yn) + shock
+
+    shock > 0 代表負向供給衝擊（成本上升，SRAS 上移/左移）
+    shock < 0 代表正向供給衝擊（成本下降，SRAS 下移/右移）
+    """
+    return Pe + lam * (Y - Yn) + shock
+
+
+def solve_equilibrium(A, m, Pe, lam, Yn, shock):
+    """
+    解 AD = SRAS
+    A - mY = Pe + λ(Y - Yn) + shock
+
+    => Y* = [A - Pe + λYn - shock] / (m + λ)
+    => P* = AD(Y*)
+    """
+    Y_star = (A - Pe + lam * Yn - shock) / (m + lam)
+    P_star = ad_curve(Y_star, A, m)
+    return Y_star, P_star
+
+
+# -----------------------------
+# 側邊欄頁面
+# -----------------------------
+page = st.sidebar.selectbox(
+    "選擇主題",
+    ["🏠 首頁", "📊 AD-AS 模擬", "乘數效應與模式區別", "需求衝擊 vs. 供給衝擊", "短期 vs. 長期 AS", "約翰·梅納德·凱因斯"]
+)
+
+# -----------------------------
+# 首頁
+# -----------------------------
 if page == "🏠 首頁":
-    st.title("📈 總體經濟學 AD-AS 模擬")
+    st.title("📈 總體經濟學 AD-AS 模型互動模擬")
     st.write("""
-    本應用程式讓你調整 **政府支出 (G)** 與 **貨幣供給 (M)**，並即時觀察
-    **總需求 (AD)** 與 **總供給 (AS)** 變化對 GDP 和物價的影響。
+這個應用程式可以幫助你理解：
 
-    **特點：**
-    - **互動式調整 AD-AS 模型**
-    - **不同經濟情境（需求衝擊、供給衝擊）**
-    - **可視化總體經濟變化**
-    """)
-    st.image("https://upload.wikimedia.org/wikipedia/commons/2/25/AS_%2B_AD_graph.svg", width=500)
-    st.write("點擊左側選單進入 `📊 AD-AS 模擬` 頁面！")
+- **AD（總需求）** 如何受政策影響而移動
+- **AS（總供給）** 如何受成本與預期影響而移動
+- **均衡產出 Y 與物價 P** 如何改變
+""")
 
-# 📊 **AD-AS 模擬**
+    st.markdown("""
+**你可以觀察：**
+- 政府支出增加，AD 如何右移
+- 貨幣供給增加，AD 如何右移
+- 成本上升時，SRAS 如何左移
+- 長期均衡時，LRAS 為什麼是一條垂直線
+""")
+
+    st.info("請從左側選單進入「📊 AD-AS 模擬」頁面。")
+
+
+# -----------------------------
+# AD-AS 模擬
+# -----------------------------
 elif page == "📊 AD-AS 模擬":
     st.title("📊 AD-AS 模型互動模擬")
 
-    # 讓使用者選擇經濟場景
-    scenario = st.selectbox("選擇經濟情境", ["正常狀態", "需求衝擊（經濟繁榮）", "供給衝擊（成本上升）"])
+    scenario = st.selectbox(
+        "選擇經濟情境",
+        ["正常狀態", "需求衝擊（經濟繁榮）", "供給衝擊（成本上升）"]
+    )
 
-    # 變數控制（使用者輸入）
     col1, col2 = st.columns(2)
     with col1:
         G = st.slider("政府支出 (G)", min_value=50, max_value=300, value=100, step=10)
     with col2:
         M = st.slider("貨幣供給 (M)", min_value=50, max_value=300, value=100, step=10)
 
-    # 計算 AD 曲線
-    a, b = 1.5, 0.8  # 假設係數
-    GDP_ad = a * G + b * M
+    show_lras = st.checkbox("顯示長期 AS (LRAS)", value=True)
 
-    # 設定 AS 曲線（根據場景調整）
-    GDP_range = np.linspace(50, 500, 100)
+    # ---- AD 參數 ----
+    # 讓正常情況下的均衡點不要離 Yn 太遠
+    A_base = 70
+    A = A_base + 0.10 * G + 0.05 * M
+    m = 0.10
+
+    # ---- SRAS 參數 ----
+    Pe = 20
+    lam = 0.08
+    Yn = 500
+    shock = 0
+
+    # 情境調整
     if scenario == "正常狀態":
-        AS_curve = 0.02 * GDP_range**1.2  
+        shock = 0
     elif scenario == "需求衝擊（經濟繁榮）":
-        AS_curve = 0.015 * GDP_range**1.1  # 需求上升，價格影響較小
+        A += 18
     elif scenario == "供給衝擊（成本上升）":
-        AS_curve = 0.03 * GDP_range**1.3  # 供給面受影響，通膨加劇
+        shock = 12
 
-    # 繪製圖表
-    fig, ax = plt.subplots(figsize=(6, 4))
-    ax.plot(GDP_range, AS_curve, label="AS 總供給", color="blue", linewidth=2)
-    ax.axvline(GDP_ad, color="red", linestyle="--", label="AD 總需求 (調整後)")
-    ax.set_xlabel("GDP", fontsize=12)
-    ax.set_ylabel("價格水準", fontsize=12)
-    ax.set_title(f"AD-AS 模型（{scenario}）", fontsize=14)
-    ax.legend()
+    # 先算均衡點
+    Y_star, P_star = solve_equilibrium(A, m, Pe, lam, Yn, shock)
+
+    # 根據均衡點自動決定畫圖範圍，避免交點跑到圖外
+    x_min = 100
+    x_max = max(900, Y_star + 120, Yn + 120)
+    Y_range = np.linspace(x_min, x_max, 400)
+
+    AD = ad_curve(Y_range, A, m)
+    SRAS = sras_curve(Y_range, Pe, lam, Yn, shock)
+
+    # 畫圖
+    fig, ax = plt.subplots(figsize=(7, 5))
+    ax.plot(Y_range, AD, label="AD 總需求", linewidth=2)
+    ax.plot(Y_range, SRAS, label="SRAS 短期總供給", linewidth=2)
+
+    if show_lras:
+        ax.axvline(Yn, linestyle="--", label="LRAS 長期總供給")
+
+    ax.scatter(
+        Y_star, P_star,
+        color="black",
+        zorder=5,
+        label=f"均衡點 (Y*={Y_star:.1f}, P*={P_star:.1f})"
+    )
+
+    ax.set_xlabel("實質產出 Y")
+    ax.set_ylabel("物價水準 P")
+    ax.set_title(f"AD-AS 模型（{scenario}）")
     ax.grid(alpha=0.3)
+    ax.legend()
 
-    # 顯示圖表
+    # 固定顯示範圍，避免均衡點或曲線被擠掉
+    ax.set_xlim(x_min, x_max)
+    y_min = min(AD.min(), SRAS.min(), P_star) - 10
+    y_max = max(AD.max(), SRAS.max(), P_star) + 10
+    ax.set_ylim(y_min, y_max)
+
     st.pyplot(fig)
 
-    # 顯示結果
-    st.success(f"💡 **調整後的 GDP 平衡點**：{GDP_ad:.2f}")
+    st.success(f"💡 均衡產出：Y* = {Y_star:.2f}；均衡物價：P* = {P_star:.2f}")
 
-    # ✨ **模型說明區**
+    # 加一小段情境解讀
+    if scenario == "正常狀態":
+        st.info("正常狀態下，均衡點通常應相對接近潛在產出 Yn。")
+    elif scenario == "需求衝擊（經濟繁榮）":
+        st.info("需求衝擊下，AD 右移，通常會帶來更高的產出與物價。")
+    elif scenario == "供給衝擊（成本上升）":
+        st.info("供給衝擊下，SRAS 左移，通常會造成產出下降、物價上升。")
+
     with st.expander("📖 什麼是 AD-AS 模型？"):
         st.write("""
-        **AD-AS 模型**（總需求-總供給模型）是經濟學中的一個重要框架，描述了整個經濟體系的價格水準與 GDP 之間的關係。
+**AD-AS 模型**用來分析整體經濟中的產出與物價。
 
-        - **AD (Aggregate Demand)**：總需求，由政府支出 (G)、貨幣供給 (M)、投資、消費等決定。
-        - **AS (Aggregate Supply)**：總供給，受生產成本、技術水準、勞動市場等影響。
+- **AD（總需求）**：反映整體經濟對商品與服務的需求，通常向右下傾斜
+- **SRAS（短期總供給）**：反映企業在短期願意供給的產出，通常向右上傾斜
+- **LRAS（長期總供給）**：反映經濟的潛在產出，通常畫成垂直線
 
-        在這個模型中：
-        - **需求增加**（如政府擴大支出）會讓 **AD 右移**，提高 GDP 和通膨率。
-        - **供給衝擊**（如成本上升）會讓 **AS 左移**，可能導致滯脹（Stagflation）。
+在這個模型中：
+- **G 或 M 增加**，通常會讓 **AD 右移**
+- **成本上升**，通常會讓 **SRAS 左移**
+- 交點代表短期均衡的 **產出與物價**
+""")
 
-        📌 你可以調整 **G（政府支出）** 和 **M（貨幣供給）**，觀察總體經濟的變化！
-        """)
+# -----------------------------
 # 乘數效應與模式區別
+# -----------------------------
 elif page == "乘數效應與模式區別":
     st.title("🔍 乘數效應與模式區別")
-    st.write("這裡解釋需求衝擊、供給衝擊與短期/長期影響的區別。")
 
     st.subheader("📌 需求乘數")
-    st.latex(r"M = \frac{1}{1 - MPC}")
-    st.write("MPC（邊際消費傾向）越高，乘數效果越大。")
+    st.latex(r"k = \frac{1}{1 - MPC}")
+    st.write("""
+這裡的乘數是凱因斯式需求分析中的核心概念。  
+當 **MPC（邊際消費傾向）** 越高，政府支出增加所帶來的總需求擴張效果通常越大。
+""")
 
-    st.subheader("📌 供給衝擊的影響")
-    st.write("供給衝擊沒有固定乘數，但可能導致成本上升與滯脹。")
+    st.subheader("📌 AD-AS 與 45 度線模型的差別")
+    st.write("""
+- **45 度線模型**：重點是產出如何由總需求決定
+- **IS-LM 模型**：加入利率與貨幣市場
+- **AD-AS 模型**：進一步加入物價水準，分析通膨與產出的互動
+""")
 
+    st.subheader("📌 供給衝擊的特徵")
+    st.write("""
+供給衝擊通常不是「固定乘數」效果，而是透過生產成本、能源價格、技術條件等因素改變總供給。  
+負向供給衝擊常造成：
+- 物價上升
+- 產出下降
+- 形成滯脹壓力
+""")
+
+
+# -----------------------------
 # 需求衝擊 vs. 供給衝擊
+# -----------------------------
 elif page == "需求衝擊 vs. 供給衝擊":
     st.title("⚖️ 需求衝擊 vs. 供給衝擊")
-    
+
     with st.expander("🔍 需求衝擊案例"):
-        st.write("2020 COVID-19 刺激方案 → AD 右移 → GDP 上升，但通膨壓力增加")
-        st.write("2008 金融危機 → 投資崩潰 → AD 左移 → GDP 下降，通縮風險")
+        st.write("""
+**需求衝擊** 是指 AD 發生移動。
+常見情況：
+- 政府擴張支出
+- 貨幣供給增加
+- 民間投資或消費信心提升
+
+典型效果：
+- AD 右移
+- 產出上升
+- 物價上升
+""")
 
     with st.expander("⚡ 供給衝擊案例"):
-        st.write("1970s 石油危機 → AS 左移 → 物價上升，GDP 下降（滯脹）")
-        st.write("2022 供應鏈危機 → AS 左移 → 生產成本上升，通膨加劇")
+        st.write("""
+**供給衝擊** 是指 SRAS 發生移動。
+常見情況：
+- 油價上漲
+- 原料成本上升
+- 供應鏈中斷
+- 天災或戰爭影響生產
 
+典型效果：
+- SRAS 左移
+- 物價上升
+- 產出下降
+- 容易形成滯脹
+""")
+
+    st.info("簡單記：需求衝擊主要看 AD，供給衝擊主要看 SRAS。")
+
+
+# -----------------------------
 # 短期 vs. 長期 AS
+# -----------------------------
 elif page == "短期 vs. 長期 AS":
     st.title("📈 短期 vs. 長期 AS 曲線")
 
-    show_lras = st.checkbox("顯示長期 AS (LRAS)")
-    
-    if show_lras:
-        st.write("LRAS 是一條垂直線，表示長期 GDP 取決於生產力，而非物價。")
-    else:
-        st.write("短期 AS 會受到價格變動影響，呈現向右上傾斜的形狀。")
+    Yn = st.slider("潛在產出 Yn", min_value=300, max_value=700, value=500, step=20)
+    Pe = st.slider("預期物價 Pe", min_value=10, max_value=40, value=20, step=2)
+    lam = st.slider("SRAS 斜率 λ", min_value=0.03, max_value=0.20, value=0.08, step=0.01)
 
-# 約翰·梅納德·凱因斯
+    Y_range = np.linspace(100, 900, 400)
+    SRAS = sras_curve(Y_range, Pe=Pe, lam=lam, Yn=Yn, shock=0)
+
+    fig, ax = plt.subplots(figsize=(7, 5))
+    ax.plot(Y_range, SRAS, label="SRAS 短期總供給", linewidth=2)
+    ax.axvline(Yn, linestyle="--", label="LRAS 長期總供給")
+
+    ax.set_xlabel("實質產出 Y")
+    ax.set_ylabel("物價水準 P")
+    ax.set_title("短期 AS 與長期 AS")
+    ax.grid(alpha=0.3)
+    ax.legend()
+
+    st.pyplot(fig)
+
+    st.write("""
+- **SRAS**：短期內工資、價格調整不完全，因此通常向右上傾斜  
+- **LRAS**：長期產出取決於勞動、資本、技術與制度，因此通常畫成垂直線
+""")
+
+
+# -----------------------------
+# 凱因斯介紹
+# -----------------------------
 elif page == "約翰·梅納德·凱因斯":
     st.title("約翰·梅納德·凱因斯")
 
-    st.write("20世紀最具影響力的經濟學家之一，被譽為現代宏觀經濟學的奠基人。他在《就業、利息和貨幣通論》中挑戰了古典經濟學，提出總需求是決定經濟活動和就業水平的關鍵，並強調政府在應對經濟衰退中的積極作用。他的理論深刻影響了戰後的全球經濟政策，並在經濟危機時期為政策制定者提供了重要指引。*")
-    image_url= "https://drive.google.com/file/d/1tuvlYa9QRmwqXRGpFirVp_z7zV0LFplg/view?usp=drive_link"
-    st.image("https://zh.wikipedia.org/zh-tw/%E7%BA%A6%E7%BF%B0%C2%B7%E6%A2%85%E7%BA%B3%E5%BE%B7%C2%B7%E5%87%AF0")
-    st.image(image_url, width=500)
+    st.write("""
+約翰·梅納德·凱因斯（John Maynard Keynes）是 20 世紀最具影響力的經濟學家之一，常被視為現代宏觀經濟學的重要奠基者。
 
+他強調：
+- 總需求會影響產出與就業
+- 市場不一定能自動迅速恢復充分就業
+- 在經濟衰退時，政府可以透過財政政策穩定景氣
+
+他的思想深刻影響了後來的總體經濟學、景氣政策與政府干預理論。
+""")
+
+    st.caption("若要加入圖片，建議改用本機圖片檔，或使用直接的圖片網址。")
+
+st.sidebar.write("🔹 選擇不同的頁面來學習 AD-AS 模型！")
